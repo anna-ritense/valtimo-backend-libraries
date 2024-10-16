@@ -79,6 +79,9 @@ class PortaaltaakPlugin(
     @PluginProperty(key = "objectManagementConfigurationId", secret = false)
     lateinit var objectManagementConfigurationId: UUID
 
+    @PluginProperty(key = "taakVersion", secret = false)
+    lateinit var taakVersion: TaakVersion
+
     @PluginProperty(key = "completeTaakProcess", secret = false)
     lateinit var completeTaakProcess: String
 

@@ -98,7 +98,7 @@ class DocumentenApiVersionService(
         @LoggableResource("documentDefinitionName") caseDefinitionName: String
     ): List<Triple<PluginConfiguration, DocumentenApiPlugin, DocumentenApiVersion?>> {
         return detectPluginConfigurations(caseDefinitionName)
-            .map {  pluginConfiguration ->
+            .map { pluginConfiguration ->
                 val plugin = pluginService.createInstance(pluginConfiguration) as DocumentenApiPlugin
                 val version = getVersionByTag(plugin.apiVersion)
                 Triple(pluginConfiguration, plugin, version)
