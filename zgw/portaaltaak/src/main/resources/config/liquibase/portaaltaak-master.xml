@@ -22,5 +22,6 @@
 
     <include file="changelog/20230308-migrate-process.xml" relativeToChangelogFile="true"/>
     <include file="changelog/20241016-migrate-plugin-configurations.xml" relativeToChangelogFile="true"/>
+    <include file="changelog/20241020-migrate-plugin-actions.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

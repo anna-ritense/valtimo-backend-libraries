@@ -23,17 +23,18 @@
         <preConditions onFail="MARK_RAN">
             <and>
                 <dbms type="mysql"/>
-                <tableExists tableName="plugin_configuration"/>
+                <tableExists tableName="process_link"/>
             </and>
         </preConditions>
         <sql>
-            UPDATE plugin_configuration
-            SET properties = JSON_INSERT(
-                    properties,
-                    '$.taakVersion',
-                    'V1'
+            UPDATE process_link
+            SET action_properties = JSON_OBJECT(
+                    'taakVersion',
+                    'V1',
+                    'config',
+                    action_properties
                 )
-            WHERE plugin_definition_key = 'portaaltaak'
+            WHERE plugin_action_definition_key = 'create-portaaltaak'
         </sql>
     </changeSet>
 
@@ -41,16 +42,18 @@
         <preConditions onFail="MARK_RAN">
             <and>
                 <dbms type="postgresql"/>
-                <tableExists tableName="plugin_configuration"/>
+                <tableExists tableName="process_link"/>
             </and>
         </preConditions>
         <sql>
-            UPDATE plugin_configuration
-            SET properties = (
-                properties::jsonb
-                    || jsonb_build_object('taakVersion', 'V1')
+            UPDATE process_link
+            SET action_properties = jsonb_build_object(
+                    'taakVersion',
+                    'V1',
+                    'config',
+                    action_properties::jsonb
                 )::json
-            WHERE plugin_definition_key = 'portaaltaak'
+            WHERE plugin_action_definition_key = 'create-portaaltaak'
         </sql>
     </changeSet>
 

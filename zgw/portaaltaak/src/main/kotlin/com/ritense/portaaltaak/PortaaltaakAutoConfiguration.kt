@@ -81,7 +81,7 @@ class PortaaltaakAutoConfiguration {
         )
     }
 
-    @Order(Ordered.HIGHEST_PRECEDENCE + 20)
+    @Order(Ordered.HIGHEST_PRECEDENCE + 22)
     @Bean
     @ConditionalOnMissingBean(name = ["portaaltaakLiquibaseMasterChangeLogLocation"])
     fun portaaltaakLiquibaseMasterChangeLogLocation(): LiquibaseMasterChangeLogLocation {
