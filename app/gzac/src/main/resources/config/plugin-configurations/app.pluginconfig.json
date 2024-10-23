@@ -131,11 +131,23 @@
     },
     {
         "id": "d65113e0-a9cb-4904-93e1-5e8b1206e625",
-        "title": "Portaaltaak",
+        "title": "Portaaltaak V1",
         "pluginDefinitionKey": "portaaltaak",
         "properties": {
             "notificatiesApiPluginConfiguration": "bb1c601b-b257-497e-bab0-c21d339335d7",
             "objectManagementConfigurationId": "16c69c86-0c5d-4d57-b4ac-0add8271a142",
+            "taakVersion": "V1",
+            "completeTaakProcess": "process-completed-portaaltaak"
+        }
+    },
+    {
+        "id": "175c75c3-604b-4841-9097-9dfd98a64875",
+        "title": "Portaaltaak V2",
+        "pluginDefinitionKey": "portaaltaak",
+        "properties": {
+            "notificatiesApiPluginConfiguration": "bb1c601b-b257-497e-bab0-c21d339335d7",
+            "objectManagementConfigurationId": "16c69c86-0c5d-4d57-b4ac-0add8271a142",
+            "taakVersion": "V2",
             "completeTaakProcess": "process-completed-portaaltaak"
         }
     }
