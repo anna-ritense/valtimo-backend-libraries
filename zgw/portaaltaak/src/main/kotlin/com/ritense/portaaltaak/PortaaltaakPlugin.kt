@@ -18,6 +18,9 @@ package com.ritense.portaaltaak
 
 import com.fasterxml.jackson.core.JsonPointer
 import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
+import com.fasterxml.jackson.databind.node.TextNode
 import com.fasterxml.jackson.module.kotlin.convertValue
 import com.ritense.authorization.AuthorizationContext.Companion.runWithoutAuthorization
 import com.ritense.document.domain.patch.JsonPatchService
@@ -35,10 +38,32 @@ import com.ritense.plugin.annotation.PluginActionProperty
 import com.ritense.plugin.annotation.PluginProperty
 import com.ritense.plugin.domain.PluginConfigurationId
 import com.ritense.plugin.service.PluginService
+import com.ritense.portaaltaak.domain.CreateTaakV1ActionConfig
+import com.ritense.portaaltaak.domain.CreateTaakV2ActionConfig
+import com.ritense.portaaltaak.domain.DataBindingConfig
+import com.ritense.portaaltaak.domain.TaakForm
+import com.ritense.portaaltaak.domain.TaakFormType
+import com.ritense.portaaltaak.domain.TaakFormType.ID
+import com.ritense.portaaltaak.domain.TaakFormType.URL
+import com.ritense.portaaltaak.domain.TaakIdentificatie
+import com.ritense.portaaltaak.domain.TaakObject
+import com.ritense.portaaltaak.domain.TaakObjectV2
+import com.ritense.portaaltaak.domain.TaakObjectV2.PortaalFormulier
+import com.ritense.portaaltaak.domain.TaakObjectV2.TaakFormulier
+import com.ritense.portaaltaak.domain.TaakObjectV2.TaakKoppeling
+import com.ritense.portaaltaak.domain.TaakObjectV2.TaakSoort
+import com.ritense.portaaltaak.domain.TaakReceiver
+import com.ritense.portaaltaak.domain.TaakReceiver.OTHER
+import com.ritense.portaaltaak.domain.TaakReceiver.ZAAK_INITIATOR
+import com.ritense.portaaltaak.domain.TaakStatus
+import com.ritense.portaaltaak.domain.TaakStatus.OPEN
+import com.ritense.portaaltaak.domain.TaakUrl
+import com.ritense.portaaltaak.domain.TaakVersion
 import com.ritense.portaaltaak.exception.CompleteTaakProcessVariableNotFoundException
 import com.ritense.processdocument.domain.impl.CamundaProcessInstanceId
 import com.ritense.processdocument.service.ProcessDocumentService
 import com.ritense.processlink.domain.ActivityTypeWithEventName
+import com.ritense.valtimo.contract.json.MapperSingleton
 import com.ritense.valtimo.contract.json.patch.JsonPatchBuilder
 import com.ritense.valtimo.service.CamundaTaskService
 import com.ritense.valueresolver.ValueResolverService
@@ -52,10 +77,12 @@ import mu.KLogger
 import mu.KotlinLogging
 import org.camunda.bpm.engine.delegate.DelegateExecution
 import org.camunda.bpm.engine.delegate.DelegateTask
+import org.springframework.core.env.Environment
 import java.net.URI
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.format.DateTimeParseException
 import java.util.UUID
 
 @Plugin(
@@ -69,7 +96,8 @@ class PortaaltaakPlugin(
     private val valueResolverService: ValueResolverService,
     private val processDocumentService: ProcessDocumentService,
     private val zaakInstanceLinkService: ZaakInstanceLinkService,
-    private val taskService: CamundaTaskService
+    private val taskService: CamundaTaskService,
+    private val environment: Environment,
 ) {
     private val objectMapper = pluginService.getObjectMapper()
 
@@ -93,72 +121,14 @@ class PortaaltaakPlugin(
     )
     fun createPortaalTaak(
         delegateTask: DelegateTask,
-        @PluginActionProperty formType: TaakFormType,
-        @PluginActionProperty formTypeId: String?,
-        @PluginActionProperty formTypeUrl: String?,
-        @PluginActionProperty sendData: List<DataBindingConfig>,
-        @PluginActionProperty receiveData: List<DataBindingConfig>,
-        @PluginActionProperty receiver: TaakReceiver,
-        @PluginActionProperty identificationKey: String?,
-        @PluginActionProperty identificationValue: String?,
-        @PluginActionProperty verloopDurationInDays: Long?,
+        @PluginActionProperty taakVersion: TaakVersion,
+        @PluginActionProperty config: ObjectNode,
     ) {
         withLoggingContext(DelegateTask::class.java.canonicalName to delegateTask.id) {
-            logger.debug { "Creating portaaltaak for task with id '${delegateTask.id}'" }
-
-            val objectManagement = objectManagementService.getById(objectManagementConfigurationId)
-                ?: throw IllegalStateException("Object management not found for portaaltaak")
-
-            val objectenApiPlugin = pluginService.createInstance(
-                PluginConfigurationId
-                    .existingId(objectManagement.objectenApiPluginConfigurationId)
-            ) as ObjectenApiPlugin
-
-            val processInstanceId = CamundaProcessInstanceId(delegateTask.processInstanceId)
-            val documentId = processDocumentService.getDocumentId(processInstanceId, delegateTask).id
-
-            val zaakUrl = try {
-                zaakInstanceLinkService.getByDocumentId(documentId).zaakInstanceUrl
-            } catch (e: ZaakInstanceLinkNotFoundException) {
-                // this should set zaakUrl to null when no zaak has been linked for this case
-                null
+            when (taakVersion) {
+                TaakVersion.V1 -> createTaskV1(delegateTask, mapper.convertValue(resolveProperties(config)))
+                TaakVersion.V2 -> createTaskV2(delegateTask, mapper.convertValue(resolveProperties(config)))
             }
-
-            val verloopdatum = verloopDurationInDays?.let { LocalDateTime.now().plusDays(verloopDurationInDays) }
-                ?: delegateTask.dueDate?.let {
-                    LocalDateTime.ofInstant(
-                        delegateTask.dueDate.toInstant(),
-                        ZoneId.systemDefault()
-                    )
-                }
-
-            val portaalTaak = TaakObject(
-                getTaakIdentification(delegateTask, receiver, identificationKey, identificationValue),
-                getTaakData(delegateTask, sendData, documentId.toString()),
-                delegateTask.name,
-                TaakStatus.OPEN,
-                getTaakForm(formType, formTypeId, formTypeUrl),
-                delegateTask.id,
-                zaakUrl,
-                verloopdatum
-            )
-
-            val objecttypenApiPlugin = pluginService
-                .createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId)) as ObjecttypenApiPlugin
-            val objectTypeUrl = objecttypenApiPlugin.getObjectTypeUrlById(objectManagement.objecttypeId)
-
-            val createObjectRequest = ObjectRequest(
-                objectTypeUrl,
-                ObjectRecord(
-                    typeVersion = objectManagement.objecttypeVersion,
-                    data = pluginService.getObjectMapper().convertValue(portaalTaak),
-                    startAt = LocalDate.now()
-                )
-            )
-
-            val portalTaskObject = objectenApiPlugin.createObject(createObjectRequest)
-
-            logger.info { "Portaaltaak object with UUID '${portalTaskObject.uuid}' and URL '${portalTaskObject.url}' created for task with id '${delegateTask.id}'" }
         }
     }
 
@@ -187,16 +157,190 @@ class PortaaltaakPlugin(
         val objectenApiPlugin =
             pluginService.createInstance(PluginConfigurationId(UUID.fromString(objectenApiPluginId))) as ObjectenApiPlugin
         val portaalTaakMetaDataObject = objectenApiPlugin.getObject(portaalTaakObjectUrl)
-        var taakObject: TaakObject = objectMapper
-            .convertValue(
-                portaalTaakMetaDataObject.record.data ?: throw RuntimeException("Portaaltaak meta data was empty!")
-            )
-        taakObject = changeStatus(taakObject, TaakStatus.VERWERKT)
-        val portaalTaakMetaObjectUpdated =
-            changeDataInPortalTaakObject(portaalTaakMetaDataObject, objectMapper.convertValue(taakObject))
-        objectenApiPlugin.objectPatch(portaalTaakObjectUrl, portaalTaakMetaObjectUpdated)
 
-        logger.info { "Portaaltaak object with URL '${portaalTaakObjectUrl}' completed by changing status to 'verwerkt'" }
+        when (taakVersion) {
+            TaakVersion.V1 -> {
+                var taakObject: TaakObject = objectMapper
+                    .convertValue(
+                        portaalTaakMetaDataObject.record.data
+                            ?: throw RuntimeException("Portaaltaak meta data was empty!")
+                    )
+                taakObject = changeStatus(taakObject, TaakStatus.VERWERKT)
+                val portaalTaakMetaObjectUpdated =
+                    changeDataInPortalTaakObject(portaalTaakMetaDataObject, objectMapper.convertValue(taakObject))
+                objectenApiPlugin.objectPatch(portaalTaakObjectUrl, portaalTaakMetaObjectUpdated)
+
+                logger.info { "Portaaltaak object with URL '${portaalTaakObjectUrl}' completed by changing status to 'verwerkt'" }
+            }
+
+            TaakVersion.V2 -> {
+                val taakObject: TaakObjectV2 = objectMapper.convertValue(
+                    portaalTaakMetaDataObject.record.data
+                        ?: throw RuntimeException("Portaaltaak meta data was empty!")
+                )
+                val portaalTaakMetaObjectUpdated =
+                    changeDataInPortalTaakObject(
+                        portaalTaakMetaDataObject,
+                        objectMapper.convertValue(
+                            taakObject.copy(status = TaakObjectV2.TaakStatus.VERWERKT)
+                        )
+                    )
+                objectenApiPlugin.objectPatch(portaalTaakObjectUrl, portaalTaakMetaObjectUpdated)
+            }
+        }
+    }
+
+    private fun createTaskV1(delegateTask: DelegateTask, config: CreateTaakV1ActionConfig) {
+        logger.debug { "Creating portaaltaak for task with id '${delegateTask.id}'" }
+
+        val objectManagement = objectManagementService.getById(objectManagementConfigurationId)
+            ?: throw IllegalStateException("Object management not found for portaaltaak")
+
+        val objectenApiPlugin = pluginService.createInstance(
+            PluginConfigurationId
+                .existingId(objectManagement.objectenApiPluginConfigurationId)
+        ) as ObjectenApiPlugin
+
+        val processInstanceId = CamundaProcessInstanceId(delegateTask.processInstanceId)
+        val documentId = processDocumentService.getDocumentId(processInstanceId, delegateTask).id
+
+        val zaakUrl = try {
+            zaakInstanceLinkService.getByDocumentId(documentId).zaakInstanceUrl
+        } catch (e: ZaakInstanceLinkNotFoundException) {
+            // this should set zaakUrl to null when no zaak has been linked for this case
+            null
+        }
+
+        val verloopdatum =
+            config.verloopDurationInDays?.let { LocalDateTime.now().plusDays(config.verloopDurationInDays) }
+                ?: delegateTask.dueDate?.let {
+                    LocalDateTime.ofInstant(
+                        delegateTask.dueDate.toInstant(),
+                        ZoneId.systemDefault()
+                    )
+                }
+
+        val portaalTaak = TaakObject(
+            getTaakIdentification(delegateTask, config.receiver, config.identificationKey, config.identificationValue),
+            getTaakData(delegateTask, config.sendData, documentId.toString()),
+            delegateTask.name,
+            OPEN,
+            getTaakForm(config.formType, config.formTypeId, config.formTypeUrl),
+            delegateTask.id,
+            zaakUrl,
+            verloopdatum
+        )
+
+        val objecttypenApiPlugin = pluginService
+            .createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId)) as ObjecttypenApiPlugin
+        val objectTypeUrl = objecttypenApiPlugin.getObjectTypeUrlById(objectManagement.objecttypeId)
+
+        val createObjectRequest = ObjectRequest(
+            objectTypeUrl,
+            ObjectRecord(
+                typeVersion = objectManagement.objecttypeVersion,
+                data = pluginService.getObjectMapper().convertValue(portaalTaak),
+                startAt = LocalDate.now()
+            )
+        )
+
+        val portalTaskObject = objectenApiPlugin.createObject(createObjectRequest)
+
+        logger.info { "Portaaltaak object with UUID '${portalTaskObject.uuid}' and URL '${portalTaskObject.url}' created for task with id '${delegateTask.id}'" }
+    }
+
+    private fun createTaskV2(delegateTask: DelegateTask, config: CreateTaakV2ActionConfig) {
+        logger.debug { "Creating portaaltaak for task with id '${delegateTask.id}'" }
+
+        val objectManagement = objectManagementService.getById(objectManagementConfigurationId)
+            ?: throw IllegalStateException("Object management not found for portaaltaak")
+
+        val objectenApiPlugin: ObjectenApiPlugin =
+            pluginService.createInstance(objectManagement.objectenApiPluginConfigurationId)
+
+        val processInstanceId = CamundaProcessInstanceId(delegateTask.processInstanceId)
+        val documentId = processDocumentService.getDocumentId(processInstanceId, delegateTask).id
+
+        val verloopdatum: LocalDateTime? =
+            config
+                .verloopdatum
+                ?.let {
+                    try {
+                        LocalDateTime.parse(it)
+                    } catch (ex: DateTimeParseException) {
+                        logger.debug {
+                            "Failed to parse $it as LocalDate. Check your plugin action configuration."
+                        }
+                        throw ex
+                    }
+                }
+                ?: delegateTask.dueDate?.let {
+                    LocalDateTime.ofInstant(
+                        it.toInstant(),
+                        ZoneId.systemDefault()
+                    )
+                }
+
+        val portaalTaak = TaakObjectV2(
+            titel = delegateTask.name,
+            status = TaakObjectV2.TaakStatus.OPEN,
+            soort = config.taakSoort,
+            verloopdatum = verloopdatum,
+            identificatie = when (config.receiver) {
+                ZAAK_INITIATOR -> {
+                    val identification = getTaakIdentification(
+                        delegateTask,
+                        config.receiver,
+                        config.identificationKey,
+                        config.identificationValue
+                    )
+                    TaakObjectV2.TaakIdentificatie(identification.type, identification.value)
+                }
+
+                OTHER -> {
+                    TaakObjectV2.TaakIdentificatie(
+                        type = config.identificationKey!!,
+                        value = config.identificationValue!!,
+                    )
+                }
+            },
+            koppeling = config.koppelingRegistratie?.let {
+                TaakKoppeling(
+                    registratie = config.koppelingRegistratie,
+                    uuid = config.koppelingUuid
+                )
+            },
+            url = config.taakUrl?.let { TaakUrl(it) },
+            portaalformulier = if (config.taakSoort == TaakSoort.PORTAALFORMULIER) {
+                PortaalFormulier(
+                    type = TaakFormulier(
+                        soort = config.portaalformulierSoort!!,
+                        value = config.portaalformulierValue!!
+                    ),
+                    data = getTaakData(delegateTask, config.portaalformulierData, documentId.toString()),
+                )
+            } else null,
+            ogonebetaling = null,
+            verwerkerTaakId = delegateTask.id,
+            eigenaar = "GZAC"
+        )
+
+        val objecttypenApiPlugin = pluginService
+            .createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId)) as ObjecttypenApiPlugin
+        val objectTypeUrl = objecttypenApiPlugin.getObjectTypeUrlById(objectManagement.objecttypeId)
+
+        val createObjectRequest = ObjectRequest(
+            objectTypeUrl,
+            ObjectRecord(
+                typeVersion = objectManagement.objecttypeVersion,
+                data = objectMapper.convertValue(portaalTaak),
+                startAt = LocalDate.now()
+            )
+        )
+
+        val portalTaskObject = objectenApiPlugin.createObject(createObjectRequest)
+
+        logger.info { "Portaaltaak object with UUID '${portalTaskObject.uuid}' and URL '${portalTaskObject.url}' created for task with id '${delegateTask.id}'" }
     }
 
     internal fun getTaakIdentification(
@@ -266,10 +410,10 @@ class PortaaltaakPlugin(
         return TaakForm(
             formType,
             when (formType) {
-                TaakFormType.ID -> formTypeId
+                ID -> formTypeId
                     ?: throw IllegalStateException("formTypeId can not be null when formType ID has been chosen")
 
-                TaakFormType.URL -> formTypeUrl
+                URL -> formTypeUrl
                     ?: throw IllegalStateException("formTypeUrl can not be null when formType URL has been chosen")
             }
         )
@@ -339,7 +483,39 @@ class PortaaltaakPlugin(
         )
     }
 
+    private fun resolveProperties(properties: ObjectNode?): ObjectNode {
+        val result = objectMapper.createObjectNode()
+        properties?.fields()?.forEachRemaining {
+            result.replace(it.key, resolveValue(it.value))
+        }
+        return result
+    }
+
+    private fun resolveValue(node: JsonNode?): JsonNode? {
+        if (node != null) {
+            if (node is ObjectNode) {
+                return resolveProperties(node)
+            } else if (node.isArray) {
+                return objectMapper.createArrayNode().addAll(node.map { resolveValue(it) })
+            } else if (node.isTextual) {
+                var value = node.textValue()
+                Regex("\\$\\{([^}]+)}").findAll(value)
+                    .map { it.groupValues }
+                    .forEach { (placeholder, placeholderValue) ->
+                        val resolvedValue = environment.getProperty(placeholderValue)
+                            ?: System.getenv(placeholderValue)
+                            ?: System.getProperty(placeholderValue)
+                            ?: throw IllegalStateException("Failed to find environment variable: '$placeholderValue'")
+                        value = value.replace(placeholder, resolvedValue)
+                    }
+                return TextNode(value)
+            }
+        }
+        return node
+    }
+
     companion object {
         private val logger: KLogger = KotlinLogging.logger {}
+        private val mapper: ObjectMapper = MapperSingleton.get()
     }
 }

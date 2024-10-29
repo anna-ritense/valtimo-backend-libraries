@@ -37,6 +37,14 @@ import com.ritense.plugin.domain.PluginConfigurationId
 import com.ritense.plugin.domain.PluginProcessLink
 import com.ritense.plugin.domain.PluginProcessLinkId
 import com.ritense.plugin.repository.PluginProcessLinkRepository
+import com.ritense.portaaltaak.domain.TaakForm
+import com.ritense.portaaltaak.domain.TaakFormType
+import com.ritense.portaaltaak.domain.TaakFormType.ID
+import com.ritense.portaaltaak.domain.TaakIdentificatie
+import com.ritense.portaaltaak.domain.TaakObject
+import com.ritense.portaaltaak.domain.TaakReceiver
+import com.ritense.portaaltaak.domain.TaakStatus
+import com.ritense.portaaltaak.domain.TaakStatus.INGEDIEND
 import com.ritense.portaaltaak.exception.CompleteTaakProcessVariableNotFoundException
 import com.ritense.processdocument.domain.impl.request.NewDocumentAndStartProcessRequest
 import com.ritense.processdocument.service.ProcessDocumentService
@@ -161,19 +169,22 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
     fun `should create portaal taak`() {
         val actionPropertiesJson = """
             {
-                "formType" : "${TaakFormType.ID.key}",
-                "formTypeId": "some-form",
-                "sendData": [
-                    {
-                        "key": "/lastname",
-                        "value": "test"
-                    }
-                ],
-                "receiveData": [],
-                "receiver": "${TaakReceiver.OTHER.key}",
-                "identificationKey": "${TaakIdentificatie.TYPE_KVK}",
-                "identificationValue": "569312863",
-                "verloopDurationInDays": 3
+                "taakVersion": "V1",
+                "config": {
+                    "formType" : "${TaakFormType.ID.key}",
+                    "formTypeId": "some-form",
+                    "sendData": [
+                        {
+                            "key": "/lastname",
+                            "value": "test"
+                        }
+                    ],
+                    "receiveData": [],
+                    "receiver": "${TaakReceiver.OTHER.key}",
+                    "identificationKey": "${TaakIdentificatie.TYPE_KVK}",
+                    "identificationValue": "569312863",
+                    "verloopDurationInDays": 3
+                }
             }
         """.trimIndent()
 
@@ -215,19 +226,22 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
     fun `should create portaal taak without verloopdatum`() {
         val actionPropertiesJson = """
             {
-                "formType" : "${TaakFormType.ID.key}",
-                "formTypeId": "some-form",
-                "sendData": [
-                    {
-                        "key": "/lastname",
-                        "value": "test"
-                    }
-                ],
-                "receiveData": [],
-                "receiver": "${TaakReceiver.OTHER.key}",
-                "identificationKey": "${TaakIdentificatie.TYPE_KVK}",
-                "identificationValue": "569312863",
-                "verloopDurationInDays": null
+                "taakVersion": "V1",
+                "config": {
+                    "formType" : "${TaakFormType.ID.key}",
+                    "formTypeId": "some-form",
+                    "sendData": [
+                        {
+                            "key": "/lastname",
+                            "value": "test"
+                        }
+                    ],
+                    "receiveData": [],
+                    "receiver": "${TaakReceiver.OTHER.key}",
+                    "identificationKey": "${TaakIdentificatie.TYPE_KVK}",
+                    "identificationValue": "569312863",
+                    "verloopDurationInDays": null
+                }
             }
         """.trimIndent()
 
@@ -269,19 +283,22 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
     fun `should create portaal taak with verloopdatum from BPMN user task due-date`() {
         val actionPropertiesJson = """
             {
-                "formType" : "${TaakFormType.ID.key}",
-                "formTypeId": "some-form",
-                "sendData": [
-                    {
-                        "key": "/lastname",
-                        "value": "test"
-                    }
-                ],
-                "receiveData": [],
-                "receiver": "${TaakReceiver.OTHER.key}",
-                "identificationKey": "${TaakIdentificatie.TYPE_KVK}",
-                "identificationValue": "569312863",
-                "verloopDurationInDays": null
+                "taakVersion": "V1",
+                "config": {
+                    "formType" : "${TaakFormType.ID.key}",
+                    "formTypeId": "some-form",
+                    "sendData": [
+                        {
+                            "key": "/lastname",
+                            "value": "test"
+                        }
+                    ],
+                    "receiveData": [],
+                    "receiver": "${TaakReceiver.OTHER.key}",
+                    "identificationKey": "${TaakIdentificatie.TYPE_KVK}",
+                    "identificationValue": "569312863",
+                    "verloopDurationInDays": null
+                }
             }
         """.trimIndent()
 
@@ -484,6 +501,7 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
             {
               "notificatiesApiPluginConfiguration": "${notificatiesApiPlugin.id.id}",
               "objectManagementConfigurationId": "${objectManagement.id}",
+              "taakVersion":"V1",
               "completeTaakProcess": "process-completed-portaaltaak"
             }
         """.trimIndent()
@@ -644,8 +662,8 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
             identificatie = TaakIdentificatie("aType", "aValue"),
             data = emptyMap(),
             title = "aTitle",
-            status = TaakStatus.INGEDIEND,
-            formulier = TaakForm(TaakFormType.ID, "anId"),
+            status = INGEDIEND,
+            formulier = TaakForm(ID, "anId"),
             verwerkerTaakId = UUID.randomUUID().toString(),
             URI.create("aZaakInstanceUrl"),
             LocalDateTime.now(),

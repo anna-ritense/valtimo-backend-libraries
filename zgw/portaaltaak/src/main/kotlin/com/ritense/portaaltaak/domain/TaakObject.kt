@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.ritense.portaaltaak
+package com.ritense.portaaltaak.domain
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.annotation.JsonValue

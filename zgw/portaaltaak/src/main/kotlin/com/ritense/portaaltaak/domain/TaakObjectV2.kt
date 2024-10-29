@@ -14,13 +14,12 @@
  * limitations under the License.
  */
 
-package com.ritense.portaaltaak
+package com.ritense.portaaltaak.domain
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.annotation.JsonValue
 import java.time.LocalDateTime
-import java.util.UUID
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class TaakObjectV2(
@@ -29,11 +28,11 @@ data class TaakObjectV2(
     val soort: TaakSoort,
     val verloopdatum: LocalDateTime? = null,
     val identificatie: TaakIdentificatie,
-    val koppeling: TaakKoppeling,
+    val koppeling: TaakKoppeling? = null,
     val url: TaakUrl? = null,
     val portaalformulier: PortaalFormulier? = null,
     val ogonebetaling: OgoneBetaling? = null,
-    @JsonProperty("verwerker_taak_id") val verwerkerTaakId: UUID,
+    @JsonProperty("verwerker_taak_id") val verwerkerTaakId: String,
     val eigenaar: String,
 ) {
     enum class TaakSoort(
@@ -57,7 +56,7 @@ data class TaakObjectV2(
         override fun toString(): String = value
     }
 
-    enum class TaakFormulierSoort(@JsonValue val value: String) {
+    enum class FormulierSoort(@JsonValue val value: String) {
         ID("id"),
         URL("url"),
         ;
@@ -74,7 +73,7 @@ data class TaakObjectV2(
 
     data class TaakKoppeling(
         val registratie: TaakKoppelingRegistratie,
-        val uuid: UUID?,
+        val uuid: String?,
     )
 
     data class OgoneBetaling(
@@ -89,14 +88,14 @@ data class TaakObjectV2(
     )
 
     data class PortaalFormulier(
-        val type: TaakFormType,
+        val type: TaakFormulier,
         val data: Map<String, Any>? = emptyMap(),
         @JsonProperty("verzonden_data")
-        var verzondenData: Map<String, Any>? = null,
+        var verzondenData: Map<String, Any> = emptyMap(),
     )
 
     data class TaakFormulier(
-        val soort: TaakFormulierSoort,
+        val soort: FormulierSoort,
         val value: String
     )
 }

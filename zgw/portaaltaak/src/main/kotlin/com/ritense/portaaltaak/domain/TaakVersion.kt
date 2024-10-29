@@ -14,11 +14,9 @@
  * limitations under the License.
  */
 
-package com.ritense.portaaltaak
+package com.ritense.portaaltaak.domain
 
-import com.fasterxml.jackson.annotation.JsonValue
-
-enum class TaakReceiver(@JsonValue val key: String) {
-    ZAAK_INITIATOR("zaakInitiator"),
-    OTHER("other")
+enum class TaakVersion {
+    V1,
+    V2,
 }

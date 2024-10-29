@@ -17,6 +17,8 @@
 package com.ritense.portaaltaak
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
+import com.fasterxml.jackson.module.kotlin.convertValue
 import com.ritense.document.domain.impl.JsonSchemaDocumentId
 import com.ritense.objectenapi.ObjectenApiPlugin
 import com.ritense.objectenapi.client.ObjectRequest
@@ -25,6 +27,13 @@ import com.ritense.objectmanagement.service.ObjectManagementService
 import com.ritense.objecttypenapi.ObjecttypenApiPlugin
 import com.ritense.plugin.domain.PluginConfigurationId
 import com.ritense.plugin.service.PluginService
+import com.ritense.portaaltaak.domain.CreateTaakV1ActionConfig
+import com.ritense.portaaltaak.domain.TaakFormType
+import com.ritense.portaaltaak.domain.TaakIdentificatie
+import com.ritense.portaaltaak.domain.TaakObject
+import com.ritense.portaaltaak.domain.TaakReceiver
+import com.ritense.portaaltaak.domain.TaakStatus
+import com.ritense.portaaltaak.domain.TaakVersion.V1
 import com.ritense.processdocument.service.ProcessDocumentService
 import com.ritense.valtimo.contract.json.MapperSingleton
 import com.ritense.valueresolver.ValueResolverService
@@ -87,6 +96,7 @@ internal class PortaaltaakPluginTest {
             valueResolverService,
             processDocumentService,
             zaakInstanceLinkService,
+            mock(),
             mock()
         )
         portaaltaakPlugin.notificatiesApiPluginConfiguration = mock()
@@ -94,25 +104,33 @@ internal class PortaaltaakPluginTest {
     }
 
     @Test
-    fun `should create taak object in objects api`() {
-        val formType = TaakFormType.ID
-        val formTypeId = "formTypeId"
-        val formTypeUrl = "formTypeUrl"
-        val sendData = emptyList<DataBindingConfig>()
-        val receiveData = emptyList<DataBindingConfig>()
-        val receiver = TaakReceiver.ZAAK_INITIATOR
-        val identificationKey = TaakIdentificatie.TYPE_BSN
+    fun `should create taak V1 object in objects api`() {
+        val config: ObjectNode = objectMapper.convertValue(
+            CreateTaakV1ActionConfig(
+                formType = TaakFormType.ID,
+                formTypeId = "formTypeId",
+                formTypeUrl = "formTypeUrl",
+                sendData = emptyList(),
+                receiveData = emptyList(),
+                receiver = TaakReceiver.ZAAK_INITIATOR,
+                identificationKey = TaakIdentificatie.TYPE_BSN,
+                identificationValue = bsn,
+                verloopDurationInDays = 5L
+            )
+        )
         val zakenApiPlugin = mock<ZakenApiPlugin>()
         val objectenApiPlugin = mock<ObjectenApiPlugin>()
         val objecttypenApiPlugin = mock<ObjecttypenApiPlugin>()
-        val verloopDurationInDays = 5L
-
         val objectManagement = getObjectManagement()
         val objectTypeUrl = URI("https://example.com/")
 
         whenever(objectManagementService.getById(any())).thenReturn(objectManagement)
-        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objectenApiPluginConfigurationId))).thenReturn(objectenApiPlugin)
-        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId))).thenReturn(objecttypenApiPlugin)
+        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objectenApiPluginConfigurationId))).thenReturn(
+            objectenApiPlugin
+        )
+        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId))).thenReturn(
+            objecttypenApiPlugin
+        )
         whenever(pluginService.createInstance(any<Class<ZakenApiPlugin>>(), any())).thenReturn(zakenApiPlugin)
         whenever(objecttypenApiPlugin.getObjectTypeUrlById(any())).thenReturn(objectTypeUrl)
         whenever(delegateTask.processInstanceId).thenReturn(UUID.randomUUID().toString())
@@ -128,15 +146,8 @@ internal class PortaaltaakPluginTest {
 
         portaaltaakPlugin.createPortaalTaak(
             delegateTask,
-            formType,
-            formTypeId,
-            formTypeUrl,
-            sendData,
-            receiveData,
-            receiver,
-            identificationKey,
-            bsn,
-            verloopDurationInDays
+            V1,
+            config
         )
 
         val captor = argumentCaptor<ObjectRequest>()
@@ -162,18 +173,22 @@ internal class PortaaltaakPluginTest {
     }
 
     @Test
-    fun `should create taak object in objects api without verloopdatum`() {
-        val formType = TaakFormType.ID
-        val formTypeId = "formTypeId"
-        val formTypeUrl = "formTypeUrl"
-        val sendData = emptyList<DataBindingConfig>()
-        val receiveData = emptyList<DataBindingConfig>()
-        val receiver = TaakReceiver.ZAAK_INITIATOR
-        val identificationKey = TaakIdentificatie.TYPE_BSN
+    fun `should create taak V1 object in objects api without verloopdatum`() {
+        val config: ObjectNode = objectMapper.convertValue(
+            CreateTaakV1ActionConfig(
+                formType = TaakFormType.ID,
+                formTypeId = "formTypeId",
+                formTypeUrl = "formTypeUrl",
+                sendData = emptyList(),
+                receiveData = emptyList(),
+                receiver = TaakReceiver.ZAAK_INITIATOR,
+                identificationKey = TaakIdentificatie.TYPE_BSN,
+                identificationValue = bsn
+            )
+        )
         val zakenApiPlugin = mock<ZakenApiPlugin>()
         val objectenApiPlugin = mock<ObjectenApiPlugin>()
         val objecttypenApiPlugin = mock<ObjecttypenApiPlugin>()
-        val verloopDurationInDays = null
 
         val objectManagement = getObjectManagement()
         val objectTypeUrl = URI("https://example.com/")
@@ -181,8 +196,12 @@ internal class PortaaltaakPluginTest {
         val objectMapper = MapperSingleton.get()
 
         whenever(objectManagementService.getById(any())).thenReturn(objectManagement)
-        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objectenApiPluginConfigurationId))).thenReturn(objectenApiPlugin)
-        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId))).thenReturn(objecttypenApiPlugin)
+        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objectenApiPluginConfigurationId))).thenReturn(
+            objectenApiPlugin
+        )
+        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId))).thenReturn(
+            objecttypenApiPlugin
+        )
         whenever(pluginService.createInstance(any<Class<ZakenApiPlugin>>(), any())).thenReturn(zakenApiPlugin)
         whenever(objecttypenApiPlugin.getObjectTypeUrlById(any())).thenReturn(objectTypeUrl)
         whenever(delegateTask.processInstanceId).thenReturn(UUID.randomUUID().toString())
@@ -199,15 +218,8 @@ internal class PortaaltaakPluginTest {
 
         portaaltaakPlugin.createPortaalTaak(
             delegateTask,
-            formType,
-            formTypeId,
-            formTypeUrl,
-            sendData,
-            receiveData,
-            receiver,
-            identificationKey,
-            bsn,
-            verloopDurationInDays
+            V1,
+            config
         )
 
         val captor = argumentCaptor<ObjectRequest>()
@@ -232,20 +244,24 @@ internal class PortaaltaakPluginTest {
     }
 
     @Test
-    fun `should create taak object in objects api without linked zaak`() {
-        val formType = TaakFormType.ID
-        val formTypeId = "formTypeId"
-        val formTypeUrl = "formTypeUrl"
-        val sendData = emptyList<DataBindingConfig>()
-        val receiveData = emptyList<DataBindingConfig>()
-        // this can't be zaak initiator if zaak is not linked
-        val receiver = TaakReceiver.OTHER
-        val identificationKey = "test"
-        val identificationValue = "123"
+    fun `should create taak V1 object in objects api without linked zaak`() {
+        val config: ObjectNode = objectMapper.convertValue(
+            CreateTaakV1ActionConfig(
+                formType = TaakFormType.ID,
+                formTypeId = "formTypeId",
+                formTypeUrl = "formTypeUrl",
+                sendData = emptyList(),
+                receiveData = emptyList(),
+                // this can't be zaak initiator if zaak is not linked
+                receiver = TaakReceiver.OTHER,
+                identificationKey = "test",
+                identificationValue = "123",
+                verloopDurationInDays = 5L
+            )
+        )
         val zakenApiPlugin = mock<ZakenApiPlugin>()
         val objectenApiPlugin = mock<ObjectenApiPlugin>()
         val objecttypenApiPlugin = mock<ObjecttypenApiPlugin>()
-        val verloopDurationInDays = 5L
 
         val objectManagement = getObjectManagement()
         val objectTypeUrl = URI("https://example.com/")
@@ -253,8 +269,12 @@ internal class PortaaltaakPluginTest {
         val objectMapper = MapperSingleton.get()
 
         whenever(objectManagementService.getById(any())).thenReturn(objectManagement)
-        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objectenApiPluginConfigurationId))).thenReturn(objectenApiPlugin)
-        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId))).thenReturn(objecttypenApiPlugin)
+        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objectenApiPluginConfigurationId))).thenReturn(
+            objectenApiPlugin
+        )
+        whenever(pluginService.createInstance(PluginConfigurationId(objectManagement.objecttypenApiPluginConfigurationId))).thenReturn(
+            objecttypenApiPlugin
+        )
         whenever(pluginService.createInstance(any<Class<ZakenApiPlugin>>(), any())).thenReturn(zakenApiPlugin)
         whenever(objecttypenApiPlugin.getObjectTypeUrlById(any())).thenReturn(objectTypeUrl)
         whenever(delegateTask.processInstanceId).thenReturn(UUID.randomUUID().toString())
@@ -273,15 +293,8 @@ internal class PortaaltaakPluginTest {
 
         portaaltaakPlugin.createPortaalTaak(
             delegateTask,
-            formType,
-            formTypeId,
-            formTypeUrl,
-            sendData,
-            receiveData,
-            receiver,
-            identificationKey,
-            identificationValue,
-            verloopDurationInDays
+            V1,
+            config
         )
 
         val captor = argumentCaptor<ObjectRequest>()

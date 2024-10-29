@@ -32,6 +32,13 @@ import com.ritense.plugin.domain.PluginConfigurationId
 import com.ritense.plugin.domain.PluginProcessLink
 import com.ritense.plugin.domain.PluginProcessLinkId
 import com.ritense.plugin.repository.PluginProcessLinkRepository
+import com.ritense.portaaltaak.domain.TaakForm
+import com.ritense.portaaltaak.domain.TaakFormType
+import com.ritense.portaaltaak.domain.TaakFormType.ID
+import com.ritense.portaaltaak.domain.TaakIdentificatie
+import com.ritense.portaaltaak.domain.TaakObject
+import com.ritense.portaaltaak.domain.TaakReceiver
+import com.ritense.portaaltaak.domain.TaakStatus.INGEDIEND
 import com.ritense.processdocument.domain.impl.request.NewDocumentAndStartProcessRequest
 import com.ritense.processdocument.service.ProcessDocumentService
 import com.ritense.processlink.domain.ActivityTypeWithEventName
@@ -125,26 +132,29 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
     }
 
     @Test
-    fun `should complete task with data on event`() {
+    fun `should complete task V1 with data on event`() {
         val actionPropertiesJson = """
             {
-                "formType" : "${TaakFormType.ID.key}",
-                "formTypeId": "some-form",
-                "sendData": [
-                    {
-                        "key": "/lastname",
-                        "value": "test"
-                    }
-                ],
-                "receiveData": [
-                    {
-                        "key": "doc:/name",
-                        "value": "/name"
-                    }
-                ],
-                "receiver": "${TaakReceiver.OTHER.key}",
-                "identificationKey": "${TaakIdentificatie.TYPE_KVK}",
-                "identificationValue": "569312863"
+                "taakVersion": "V1",
+                "config": {
+                    "formType" : "${TaakFormType.ID.key}",
+                    "formTypeId": "some-form",
+                    "sendData": [
+                        {
+                            "key": "/lastname",
+                            "value": "test"
+                        }
+                    ],
+                    "receiveData": [
+                        {
+                            "key": "doc:/name",
+                            "value": "/name"
+                        }
+                    ],
+                    "receiver": "${TaakReceiver.OTHER.key}",
+                    "identificationKey": "${TaakIdentificatie.TYPE_KVK}",
+                    "identificationValue": "569312863"
+                }
             }
         """.trimIndent()
         createProcessLink(actionPropertiesJson)
@@ -277,6 +287,7 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         val pluginPropertiesJson = """
             {
               "notificatiesApiPluginConfiguration": "${notificatiesApiPlugin.id.id}",
+              "taakVersion": "V1",
               "objectManagementConfigurationId": "${objectManagement.id}",
               "completeTaakProcess": "process-completed-portaaltaak-mock"
             }
@@ -384,8 +395,8 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
             identificatie = TaakIdentificatie("aType", "aValue"),
             data = emptyMap(),
             title = "aTitle",
-            status = TaakStatus.INGEDIEND,
-            formulier = TaakForm(TaakFormType.ID, "anId"),
+            status = INGEDIEND,
+            formulier = TaakForm(ID, "anId"),
             verwerkerTaakId = getTaskId(),
             URI.create("aZaakInstanceUrl"),
             LocalDateTime.now(),

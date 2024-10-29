@@ -40,10 +40,11 @@ internal class PortaaltaakPluginFactoryTest {
         val notificatiesApiPluginMock = mock<NotificatiesApiPlugin>()
         whenever(pluginService.createInstance(any<PluginConfigurationId>())).thenReturn(notificatiesApiPluginMock)
 
-        val factory = PortaaltaakPluginFactory(pluginService, mock(), mock(), mock(), mock(), mock())
+        val factory = PortaaltaakPluginFactory(pluginService, mock(), mock(), mock(), mock(), mock(), mock())
 
         val portaaltaakPluginProperties: String = """
             {
+              "taakVersion": "V1",
               "notificatiesApiPluginConfiguration": "4d9e7fe7-0671-4955-a106-fc71dc7527a6",
               "objectManagementConfigurationId": "cc713213-995d-494f-b1cd-61fecf40f86e"
             }
@@ -86,6 +87,14 @@ internal class PortaaltaakPluginFactoryTest {
                 "objectManagementConfigurationId", pluginDefinition, "title", required = true,
                 secret = false, "objectManagementConfigurationId",
                 "java.util.UUID"
+            )
+        )
+
+        propertyDefinitions.add(
+            PluginProperty(
+                "taakVersion", pluginDefinition, "title", required = true,
+                secret = false, "taakVersion",
+                "com.ritense.portaaltaak.domain.TaakVersion"
             )
         )
 

@@ -32,6 +32,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.core.Ordered
 import org.springframework.core.annotation.Order
+import org.springframework.core.env.Environment
 
 @AutoConfiguration
 class PortaaltaakAutoConfiguration {
@@ -44,7 +45,8 @@ class PortaaltaakAutoConfiguration {
         valueResolverService: ValueResolverService,
         processDocumentService: ProcessDocumentService,
         zaakInstanceLinkService: ZaakInstanceLinkService,
-        taskService: CamundaTaskService
+        taskService: CamundaTaskService,
+        environment: Environment,
     ): PortaaltaakPluginFactory {
         return PortaaltaakPluginFactory(
             pluginService,
@@ -52,7 +54,8 @@ class PortaaltaakAutoConfiguration {
             valueResolverService,
             processDocumentService,
             zaakInstanceLinkService,
-            taskService
+            taskService,
+            environment,
         )
     }
 
