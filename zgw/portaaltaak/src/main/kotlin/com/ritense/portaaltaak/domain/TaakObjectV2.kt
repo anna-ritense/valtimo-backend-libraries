@@ -19,14 +19,14 @@ package com.ritense.portaaltaak.domain
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.annotation.JsonValue
-import java.time.LocalDateTime
+import java.time.LocalDate
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class TaakObjectV2(
     val titel: String,
     var status: TaakStatus,
     val soort: TaakSoort,
-    val verloopdatum: LocalDateTime? = null,
+    val verloopdatum: LocalDate? = null,
     val identificatie: TaakIdentificatie,
     val koppeling: TaakKoppeling? = null,
     val url: TaakUrl? = null,

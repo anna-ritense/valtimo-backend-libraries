@@ -37,8 +37,15 @@ import com.ritense.portaaltaak.domain.TaakFormType
 import com.ritense.portaaltaak.domain.TaakFormType.ID
 import com.ritense.portaaltaak.domain.TaakIdentificatie
 import com.ritense.portaaltaak.domain.TaakObject
+import com.ritense.portaaltaak.domain.TaakObjectV2
+import com.ritense.portaaltaak.domain.TaakObjectV2.FormulierSoort.URL
+import com.ritense.portaaltaak.domain.TaakObjectV2.PortaalFormulier
+import com.ritense.portaaltaak.domain.TaakObjectV2.TaakFormulier
+import com.ritense.portaaltaak.domain.TaakObjectV2.TaakSoort.PORTAALFORMULIER
+import com.ritense.portaaltaak.domain.TaakObjectV2.TaakStatus.AFGEROND
 import com.ritense.portaaltaak.domain.TaakReceiver
 import com.ritense.portaaltaak.domain.TaakStatus.INGEDIEND
+import com.ritense.portaaltaak.domain.TaakVersion
 import com.ritense.processdocument.domain.impl.request.NewDocumentAndStartProcessRequest
 import com.ritense.processdocument.service.ProcessDocumentService
 import com.ritense.processlink.domain.ActivityTypeWithEventName
@@ -73,6 +80,7 @@ import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.ExchangeFunction
 import reactor.core.publisher.Mono
 import java.net.URI
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.*
 import kotlin.test.assertEquals
@@ -103,8 +111,10 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
     lateinit var objectMapper: ObjectMapper
 
     lateinit var processDefinitionId: String
-    lateinit var objectManagement: ObjectManagement
-    lateinit var portaalTaakPluginConfiguration: PluginConfiguration
+    lateinit var objectManagementV1: ObjectManagement
+    lateinit var portaalTaakPluginConfigurationV1: PluginConfiguration
+    lateinit var objectManagementV2: ObjectManagement
+    lateinit var portaalTaakPluginConfigurationV2: PluginConfiguration
     lateinit var objecttypenPluginConfiguration: PluginConfiguration
     protected var executedRequests: MutableList<RecordedRequest> = mutableListOf()
     lateinit var server: MockWebServer
@@ -126,9 +136,14 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         notificatiesApiPluginConfiguration = createNotificatiesApiPlugin()
         objecttypenPluginConfiguration = createObjectTypenApiPlugin()
         objectenApiPluginConfiguration = createObjectenApiPlugin()
-        objectManagement =
-            createObjectManagement(objectenApiPluginConfiguration.id.id, objecttypenPluginConfiguration.id.id)
-        portaalTaakPluginConfiguration = createPortaalTaakPlugin(notificatiesApiPluginConfiguration, objectManagement)
+        objectManagementV1 =
+            createObjectManagementTaakV1(objectenApiPluginConfiguration.id.id, objecttypenPluginConfiguration.id.id)
+        portaalTaakPluginConfigurationV1 =
+            createPortaalTaakV1Plugin(notificatiesApiPluginConfiguration, objectManagementV1)
+        objectManagementV2 =
+            createObjectManagementTaakV2(objectenApiPluginConfiguration.id.id, objecttypenPluginConfiguration.id.id)
+        portaalTaakPluginConfigurationV2 =
+            createPortaalTaakV2Plugin(notificatiesApiPluginConfiguration, objectManagementV2)
     }
 
     @Test
@@ -157,7 +172,7 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
                 }
             }
         """.trimIndent()
-        createProcessLink(actionPropertiesJson)
+        createProcessLink(TaakVersion.V1, actionPropertiesJson)
 
         val documentContent = """
             {
@@ -175,7 +190,7 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         val mapCaptor = argumentCaptor<Map<String, Any>>()
         doReturn(null).whenever(camundaProcessService).startProcess(any(), any(), any())
 
-        val event = getEvent()
+        val event = getEventV1()
         portaalTaakEventListener.processCompletePortaalTaakEvent(event)
 
         verify(valueResolverService).handleValues(
@@ -221,12 +236,113 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         verify(outboxService, atLeast(1)).send(any())
     }
 
-    private fun getEvent(): NotificatiesApiNotificationReceivedEvent {
+    @Test
+    fun `should complete task V2 of type portaalformulier with data on event`() {
+        val actionPropertiesJson = """
+            {
+                "taakVersion":"V2",
+                "config": {
+                    "taakSoort":"portaalformulier",
+                    "portaalformulierSoort": "url",
+                    "portaalformulierValue": "https://example.com/objecten/api/v1/objecten/24198a2b-7847-4c15-9856-570f7ba18aa3",
+                    "portaalformulierData": [
+                        {
+                            "key":"/lastname",
+                            "value":"doc:/lastname"
+                        }
+                    ],
+                    "portaalformulierVerzondenData": [
+                        {
+                            "key": "doc:/name",
+                            "value": "/name"
+                        }
+                    ],
+                    "verloopdatum":"pv:datum",
+                    "receiver":"other",
+                    "identificationKey": "bsn",
+                    "identificationValue": "569312863"
+                }
+            }
+        """.trimIndent()
+        createProcessLink(TaakVersion.V2, actionPropertiesJson)
+
+        val documentContent = """
+            {
+                "lastname": "test"
+            }
+        """.trimIndent()
+
+
+        task = startPortaalTaakProcess(documentContent)
+
+        doCallRealMethod().whenever(pluginService).createInstance(any<Class<PortaaltaakPlugin>>(), any())
+
+        val processInstanceIdCaptor = argumentCaptor<String>()
+        val variableScopeCaptor = argumentCaptor<VariableScope>()
+        val mapCaptor = argumentCaptor<Map<String, Any>>()
+        doReturn(null).whenever(camundaProcessService).startProcess(any(), any(), any())
+
+        val event = getEventV2()
+        portaalTaakEventListener.processCompletePortaalTaakEvent(event)
+
+        verify(valueResolverService).handleValues(
+            processInstanceIdCaptor.capture(),
+            variableScopeCaptor.capture(),
+            mapCaptor.capture()
+        )
+
+        val processDefinitionKeyCaptor = argumentCaptor<String>()
+        val businessKeyCaptor = argumentCaptor<String>()
+        val processVariableCaptor = argumentCaptor<Map<String, Any>>()
+
+        verify(camundaProcessService, times(2)).startProcess(
+            processDefinitionKeyCaptor.capture(),
+            businessKeyCaptor.capture(),
+            processVariableCaptor.capture()
+        )
+
+        // assert call to valueResolverService where data is saved
+        assertEquals(task!!.getProcessInstanceId(), processInstanceIdCaptor.firstValue)
+        assertNotNull(variableScopeCaptor.firstValue)
+        val mapOfValuesToUpdate = mapCaptor.firstValue
+        assertEquals(1, mapOfValuesToUpdate.size)
+        assertEquals("Anna", mapOfValuesToUpdate["doc:/name"])
+
+        // assert second call to camundaProcessService.startProcess() where handling process is started
+        assertEquals("process-completed-portaaltaak-mock", processDefinitionKeyCaptor.secondValue)
+        assertEquals(documentId!!.toString(), businessKeyCaptor.secondValue)
+        val processVariables = processVariableCaptor.secondValue
+        assertEquals(event.resourceUrl, processVariables["portaalTaakObjectUrl"])
+        assertEquals(
+            objectenApiPluginConfiguration.id.id.toString(),
+            processVariables["objectenApiPluginConfigurationId"]
+        )
+        assertEquals(task!!.id, processVariables["verwerkerTaakId"])
+        assertThat(
+            processVariables["documentUrls"] as List<*>, containsInAnyOrder(
+                "http://documenten-api.com/api/v1/documenten/393ba68f-0bd6-43d7-9c1c-cb33d4d2aa6e",
+                "http://documenten-api.com/api/v1/documenten/205107b1-261f-4042-925a-e300cdc6d2ab",
+                "http://documenten-api.com/api/v1/documenten/8c9dc2e4-db3b-4314-8e2e-76f38943d8fc"
+            )
+        )
+        verify(outboxService, atLeast(1)).send(any())
+    }
+
+    private fun getEventV1(): NotificatiesApiNotificationReceivedEvent {
         return NotificatiesApiNotificationReceivedEvent(
             kanaal = "objecten",
             actie = "update",
-            resourceUrl = "${server.url("/")}objects",
-            kenmerken = mapOf(Pair("objectType", objectManagement.objecttypeId))
+            resourceUrl = "${server.url("/")}objects/V1",
+            kenmerken = mapOf(Pair("objectType", objectManagementV1.objecttypeId))
+        )
+    }
+
+    private fun getEventV2(): NotificatiesApiNotificationReceivedEvent {
+        return NotificatiesApiNotificationReceivedEvent(
+            kanaal = "objecten",
+            actie = "update",
+            resourceUrl = "${server.url("/")}objects/V2",
+            kenmerken = mapOf(Pair("objectType", objectManagementV2.objecttypeId))
         )
     }
 
@@ -267,7 +383,7 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         return configuration
     }
 
-    private fun createObjectManagement(
+    private fun createObjectManagementTaakV1(
         objectenApiPluginConfigurationId: UUID,
         objecttypenApiPluginConfigurationId: UUID
     ): ObjectManagement {
@@ -275,12 +391,25 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
             title = "something",
             objectenApiPluginConfigurationId = objectenApiPluginConfigurationId,
             objecttypenApiPluginConfigurationId = objecttypenApiPluginConfigurationId,
-            objecttypeId = "objecten"
+            objecttypeId = "taak-v1"
         )
         return objectManagementService.create(objectManagement)
     }
 
-    private fun createPortaalTaakPlugin(
+    private fun createObjectManagementTaakV2(
+        objectenApiPluginConfigurationId: UUID,
+        objecttypenApiPluginConfigurationId: UUID
+    ): ObjectManagement {
+        val objectManagement = ObjectManagement(
+            title = "something-v2",
+            objectenApiPluginConfigurationId = objectenApiPluginConfigurationId,
+            objecttypenApiPluginConfigurationId = objecttypenApiPluginConfigurationId,
+            objecttypeId = "taak-v2"
+        )
+        return objectManagementService.create(objectManagement)
+    }
+
+    private fun createPortaalTaakV1Plugin(
         notificatiesApiPlugin: PluginConfiguration,
         objectManagement: ObjectManagement
     ): PluginConfiguration {
@@ -288,6 +417,29 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
             {
               "notificatiesApiPluginConfiguration": "${notificatiesApiPlugin.id.id}",
               "taakVersion": "V1",
+              "objectManagementConfigurationId": "${objectManagement.id}",
+              "completeTaakProcess": "process-completed-portaaltaak-mock"
+            }
+        """.trimIndent()
+
+        val configuration = pluginService.createPluginConfiguration(
+            "Portaaltaak plugin configuration",
+            objectMapper.readTree(
+                pluginPropertiesJson
+            ) as ObjectNode,
+            "portaaltaak"
+        )
+        return configuration
+    }
+
+    private fun createPortaalTaakV2Plugin(
+        notificatiesApiPlugin: PluginConfiguration,
+        objectManagement: ObjectManagement
+    ): PluginConfiguration {
+        val pluginPropertiesJson = """
+            {
+              "notificatiesApiPluginConfiguration": "${notificatiesApiPlugin.id.id}",
+              "taakVersion": "V2",
               "objectManagementConfigurationId": "${objectManagement.id}",
               "completeTaakProcess": "process-completed-portaaltaak-mock"
             }
@@ -330,7 +482,9 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
                 val response = when (path) {
                     "/kanaal" -> getKanaalResponse()
                     "/abonnement" -> createAbonnementResponse()
-                    "/objects" -> createObjectResponse()
+                    "/objects" -> handleObjectCreateRequest(request)
+                    "/objects/V1" -> createTaakObjectV1Response()
+                    "/objects/V2" -> createTaakObjectV2Response()
                     else -> MockResponse().setResponseCode(404)
                 }
                 return response
@@ -338,6 +492,15 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         }
 
         server.dispatcher = dispatcher
+    }
+
+    private fun handleObjectCreateRequest(request: RecordedRequest): MockResponse {
+        val objectType = objectMapper.readTree(request.body.inputStream()).get("type").textValue()
+        return when {
+            objectType.endsWith("/objecttypes/taak-v1") -> createTaakObjectV2Response()
+            objectType.endsWith("/objecttypes/taak-v2") -> createTaakObjectV2Response()
+            else -> MockResponse().setResponseCode(400)
+        }
     }
 
     private fun getKanaalResponse(): MockResponse {
@@ -362,16 +525,16 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         return mockJsonResponse(body)
     }
 
-    private fun createObjectResponse(): MockResponse {
+    private fun createTaakObjectV1Response(): MockResponse {
         val body = """
             {
               "url": "http://example.com",
               "uuid": "095be615-a8ad-4c33-8e9c-c7612fbf6c9f",
-              "type": "http://example.com",
+              "type": "http://example.com/type/V1",
               "record": {
                 "index": 0,
                 "typeVersion": 32767,
-                "data": ${objectMapper.writeValueAsString(getTaakObject())},
+                "data": ${objectMapper.writeValueAsString(getTaakObjectV1())},
                 "geometry": {
                   "type": "string",
                   "coordinates": [
@@ -390,7 +553,35 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         return mockJsonResponse(body)
     }
 
-    private fun getTaakObject(): TaakObject {
+    private fun createTaakObjectV2Response(): MockResponse {
+        val body = """
+            {
+              "url": "http://example.com",
+              "uuid": "095be615-a8ad-4c33-8e9c-c7612fbf6c9f",
+              "type": "http://example.com/type/V2",
+              "record": {
+                "index": 0,
+                "typeVersion": 1,
+                "data": ${objectMapper.writeValueAsString(getTaakObjectV2())},
+                "geometry": {
+                  "type": "string",
+                  "coordinates": [
+                    0,
+                    0
+                  ]
+                },
+                "startAt": "2019-08-24",
+                "endAt": "2019-08-24",
+                "registrationAt": "2019-08-24",
+                "correctionFor": "string",
+                "correctedBy": "string"
+              }
+            }
+        """.trimIndent()
+        return mockJsonResponse(body)
+    }
+
+    private fun getTaakObjectV1(): TaakObject {
         return TaakObject(
             identificatie = TaakIdentificatie("aType", "aValue"),
             data = emptyMap(),
@@ -413,11 +604,46 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         )
     }
 
+    private fun getTaakObjectV2(): TaakObjectV2 {
+        return TaakObjectV2(
+            identificatie = TaakObjectV2.TaakIdentificatie("aType", "aValue"),
+            soort = PORTAALFORMULIER,
+            portaalformulier = PortaalFormulier(
+                type = TaakFormulier(
+                    soort = URL,
+                    value = "${server.url("/")}objects/form/my-form"
+                ),
+                data = emptyMap(),
+                verzondenData = mapOf(
+                    "documenten" to listOf(URI.create("/some-document"), URI.create("/some-document-array")),
+                    "name" to "Anna",
+                    "phone" to "0611111111",
+                    "some-document" to "http://documenten-api.com/api/v1/documenten/393ba68f-0bd6-43d7-9c1c-cb33d4d2aa6e",
+                    "some-document-array" to arrayOf(
+                        "http://documenten-api.com/api/v1/documenten/205107b1-261f-4042-925a-e300cdc6d2ab",
+                        "http://documenten-api.com/api/v1/documenten/8c9dc2e4-db3b-4314-8e2e-76f38943d8fc"
+                    )
+                )
+            ),
+            titel = "aTitle",
+            status = AFGEROND,
+            verwerkerTaakId = getTaskId(),
+            verloopdatum = LocalDate.parse("2024-10-30"),
+            eigenaar = "GZAC"
+        )
+    }
+
     private fun startPortaalTaakProcess(content: String): CamundaTask {
         return runWithoutAuthorization {
             val newDocumentRequest =
                 NewDocumentRequest(DOCUMENT_DEFINITION_KEY, objectMapper.readTree(content))
-            val request = NewDocumentAndStartProcessRequest(PROCESS_DEFINITION_KEY, newDocumentRequest)
+            val request =
+                NewDocumentAndStartProcessRequest(PROCESS_DEFINITION_KEY, newDocumentRequest)
+                    .withProcessVars(
+                        mapOf(
+                            "datum" to "2024-10-30"
+                        )
+                    )
             val processResult = processDocumentService.newDocumentAndStartProcess(request)
             documentId = processResult.resultingDocument().get().id().id
             taskService.findTask(
@@ -427,7 +653,7 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
         }
     }
 
-    private fun createProcessLink(propertiesConfig: String) {
+    private fun createProcessLink(version: TaakVersion, propertiesConfig: String) {
         processDefinitionId = repositoryService.createProcessDefinitionQuery()
             .processDefinitionKey(PROCESS_DEFINITION_KEY)
             .latestVersion()
@@ -440,7 +666,10 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
                 processDefinitionId,
                 "user_task",
                 objectMapper.readTree(propertiesConfig) as ObjectNode,
-                portaalTaakPluginConfiguration.id,
+                when (version) {
+                    TaakVersion.V1 -> portaalTaakPluginConfigurationV1.id
+                    TaakVersion.V2 -> portaalTaakPluginConfigurationV2.id
+                },
                 "create-portaaltaak",
                 activityType = ActivityTypeWithEventName.USER_TASK_CREATE
             )

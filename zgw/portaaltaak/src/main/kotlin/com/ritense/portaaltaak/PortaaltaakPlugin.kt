@@ -20,7 +20,6 @@ import com.fasterxml.jackson.core.JsonPointer
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
-import com.fasterxml.jackson.databind.node.TextNode
 import com.fasterxml.jackson.module.kotlin.convertValue
 import com.ritense.authorization.AuthorizationContext.Companion.runWithoutAuthorization
 import com.ritense.document.domain.patch.JsonPatchService
@@ -48,6 +47,7 @@ import com.ritense.portaaltaak.domain.TaakFormType.URL
 import com.ritense.portaaltaak.domain.TaakIdentificatie
 import com.ritense.portaaltaak.domain.TaakObject
 import com.ritense.portaaltaak.domain.TaakObjectV2
+import com.ritense.portaaltaak.domain.TaakObjectV2.OgoneBetaling
 import com.ritense.portaaltaak.domain.TaakObjectV2.PortaalFormulier
 import com.ritense.portaaltaak.domain.TaakObjectV2.TaakFormulier
 import com.ritense.portaaltaak.domain.TaakObjectV2.TaakKoppeling
@@ -77,7 +77,6 @@ import mu.KLogger
 import mu.KotlinLogging
 import org.camunda.bpm.engine.delegate.DelegateExecution
 import org.camunda.bpm.engine.delegate.DelegateTask
-import org.springframework.core.env.Environment
 import java.net.URI
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -97,10 +96,7 @@ class PortaaltaakPlugin(
     private val processDocumentService: ProcessDocumentService,
     private val zaakInstanceLinkService: ZaakInstanceLinkService,
     private val taskService: CamundaTaskService,
-    private val environment: Environment,
 ) {
-    private val objectMapper = pluginService.getObjectMapper()
-
     @PluginProperty(key = "notificatiesApiPluginConfiguration", secret = false)
     lateinit var notificatiesApiPluginConfiguration: NotificatiesApiPlugin
 
@@ -126,8 +122,8 @@ class PortaaltaakPlugin(
     ) {
         withLoggingContext(DelegateTask::class.java.canonicalName to delegateTask.id) {
             when (taakVersion) {
-                TaakVersion.V1 -> createTaskV1(delegateTask, mapper.convertValue(resolveProperties(config)))
-                TaakVersion.V2 -> createTaskV2(delegateTask, mapper.convertValue(resolveProperties(config)))
+                TaakVersion.V1 -> createTaskV1(delegateTask, resolveActionProperties(config, delegateTask.execution))
+                TaakVersion.V2 -> createTaskV2(delegateTask, resolveActionProperties(config, delegateTask.execution))
             }
         }
     }
@@ -196,10 +192,8 @@ class PortaaltaakPlugin(
         val objectManagement = objectManagementService.getById(objectManagementConfigurationId)
             ?: throw IllegalStateException("Object management not found for portaaltaak")
 
-        val objectenApiPlugin = pluginService.createInstance(
-            PluginConfigurationId
-                .existingId(objectManagement.objectenApiPluginConfigurationId)
-        ) as ObjectenApiPlugin
+        val objectenApiPlugin: ObjectenApiPlugin =
+            pluginService.createInstance(objectManagement.objectenApiPluginConfigurationId)
 
         val processInstanceId = CamundaProcessInstanceId(delegateTask.processInstanceId)
         val documentId = processDocumentService.getDocumentId(processInstanceId, delegateTask).id
@@ -261,12 +255,12 @@ class PortaaltaakPlugin(
         val processInstanceId = CamundaProcessInstanceId(delegateTask.processInstanceId)
         val documentId = processDocumentService.getDocumentId(processInstanceId, delegateTask).id
 
-        val verloopdatum: LocalDateTime? =
+        val verloopdatum: LocalDate? =
             config
                 .verloopdatum
                 ?.let {
                     try {
-                        LocalDateTime.parse(it)
+                        LocalDate.parse(it)
                     } catch (ex: DateTimeParseException) {
                         logger.debug {
                             "Failed to parse $it as LocalDate. Check your plugin action configuration."
@@ -275,10 +269,17 @@ class PortaaltaakPlugin(
                     }
                 }
                 ?: delegateTask.dueDate?.let {
-                    LocalDateTime.ofInstant(
+                    LocalDate.ofInstant(
                         it.toInstant(),
                         ZoneId.systemDefault()
                     )
+                }
+        val ogoneBedrag: Double? =
+            config.ogoneBedrag
+                ?.let {
+                    requireNotNull(it.toDoubleOrNull()) {
+                        "Failed to parse $it as Double. Check your plugin action configuration."
+                    }
                 }
 
         val portaalTaak = TaakObjectV2(
@@ -320,9 +321,15 @@ class PortaaltaakPlugin(
                     data = getTaakData(delegateTask, config.portaalformulierData, documentId.toString()),
                 )
             } else null,
-            ogonebetaling = null,
+            ogonebetaling = if (config.taakSoort == TaakSoort.OGONEBETALING) {
+                OgoneBetaling(
+                    bedrag = ogoneBedrag!!,
+                    betaalkenmerk = config.ogoneBetaalkenmerk!!,
+                    pspid = config.ogonePspid!!
+                )
+            } else null,
             verwerkerTaakId = delegateTask.id,
-            eigenaar = "GZAC"
+            eigenaar = DEFAULT_EIGENAAR
         )
 
         val objecttypenApiPlugin = pluginService
@@ -483,39 +490,26 @@ class PortaaltaakPlugin(
         )
     }
 
-    private fun resolveProperties(properties: ObjectNode?): ObjectNode {
-        val result = objectMapper.createObjectNode()
-        properties?.fields()?.forEachRemaining {
-            result.replace(it.key, resolveValue(it.value))
-        }
-        return result
-    }
+    private inline fun <reified T> resolveActionProperties(config: ObjectNode, execution: DelegateExecution): T {
+        val requestedValues = config.properties()
+            .filter { it.value.isTextual }
+            .mapNotNull { it.value.textValue() }
+        val resolvedValues = valueResolverService.resolveValues(
+            execution.processInstanceId,
+            execution,
+            requestedValues
+        )
 
-    private fun resolveValue(node: JsonNode?): JsonNode? {
-        if (node != null) {
-            if (node is ObjectNode) {
-                return resolveProperties(node)
-            } else if (node.isArray) {
-                return objectMapper.createArrayNode().addAll(node.map { resolveValue(it) })
-            } else if (node.isTextual) {
-                var value = node.textValue()
-                Regex("\\$\\{([^}]+)}").findAll(value)
-                    .map { it.groupValues }
-                    .forEach { (placeholder, placeholderValue) ->
-                        val resolvedValue = environment.getProperty(placeholderValue)
-                            ?: System.getenv(placeholderValue)
-                            ?: System.getProperty(placeholderValue)
-                            ?: throw IllegalStateException("Failed to find environment variable: '$placeholderValue'")
-                        value = value.replace(placeholder, resolvedValue)
-                    }
-                return TextNode(value)
+        return objectMapper.convertValue(
+            config.properties().associate { (key, value) ->
+                key to (resolvedValues.get(value.textValue()) ?: value)
             }
-        }
-        return node
+        )
     }
 
     companion object {
+        private const val DEFAULT_EIGENAAR = "GZAC"
         private val logger: KLogger = KotlinLogging.logger {}
-        private val mapper: ObjectMapper = MapperSingleton.get()
+        private val objectMapper: ObjectMapper = MapperSingleton.get()
     }
 }
