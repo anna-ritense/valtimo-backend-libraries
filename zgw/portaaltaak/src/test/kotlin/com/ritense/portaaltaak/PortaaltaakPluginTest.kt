@@ -39,8 +39,8 @@ import com.ritense.portaaltaak.domain.TaakObjectV2.TaakSoort.PORTAALFORMULIER
 import com.ritense.portaaltaak.domain.TaakReceiver
 import com.ritense.portaaltaak.domain.TaakReceiver.ZAAK_INITIATOR
 import com.ritense.portaaltaak.domain.TaakStatus
-import com.ritense.portaaltaak.domain.TaakVersion.V1
-import com.ritense.portaaltaak.domain.TaakVersion.V2
+import com.ritense.portaaltaak.domain.TaakVersion
+import com.ritense.portaaltaak.service.PortaaltaakService
 import com.ritense.processdocument.service.ProcessDocumentService
 import com.ritense.valtimo.contract.json.MapperSingleton
 import com.ritense.valueresolver.ValueResolverService
@@ -76,19 +76,20 @@ import kotlin.test.assertTrue
 
 internal class PortaaltaakPluginTest {
 
-    lateinit var objectManagementService: ObjectManagementService
-    lateinit var pluginService: PluginService
-    lateinit var valueResolverService: ValueResolverService
-    lateinit var processDocumentService: ProcessDocumentService
-    lateinit var zaakInstanceLinkService: ZaakInstanceLinkService
-    lateinit var portaaltaakPlugin: PortaaltaakPlugin
-    lateinit var zakenApiPlugin: ZakenApiPlugin
-    lateinit var objectMapper: ObjectMapper
-    val delegateTask = mock<DelegateTask>()
-    val execution = mock<DelegateExecution>()
-    val bsn = "688223436"
-    val kvk = "12345678"
-    val jsonSchemaDocumentId = mock<JsonSchemaDocumentId>()
+    private lateinit var objectManagementService: ObjectManagementService
+    private lateinit var pluginService: PluginService
+    private lateinit var valueResolverService: ValueResolverService
+    private lateinit var processDocumentService: ProcessDocumentService
+    private lateinit var zaakInstanceLinkService: ZaakInstanceLinkService
+    private lateinit var portaaltaakPlugin: PortaaltaakPlugin
+    private lateinit var portaaltaakService: PortaaltaakService
+    private lateinit var zakenApiPlugin: ZakenApiPlugin
+    private lateinit var objectMapper: ObjectMapper
+    private val delegateTask = mock<DelegateTask>()
+    private val execution = mock<DelegateExecution>()
+    private val bsn = "688223436"
+    private val kvk = "12345678"
+    private val jsonSchemaDocumentId = mock<JsonSchemaDocumentId>()
 
     @BeforeEach
     fun init() {
@@ -100,13 +101,16 @@ internal class PortaaltaakPluginTest {
         zakenApiPlugin = mock()
         objectMapper = MapperSingleton.get()
         whenever(pluginService.getObjectMapper()).thenReturn(objectMapper)
-        portaaltaakPlugin = PortaaltaakPlugin(
+        portaaltaakService = PortaaltaakService(
             objectManagementService,
             pluginService,
             valueResolverService,
             processDocumentService,
             zaakInstanceLinkService,
             mock()
+        )
+        portaaltaakPlugin = PortaaltaakPlugin(
+            portaaltaakService,
         )
         portaaltaakPlugin.notificatiesApiPluginConfiguration = mock()
         portaaltaakPlugin.objectManagementConfigurationId = mock()
@@ -121,7 +125,7 @@ internal class PortaaltaakPluginTest {
                 formTypeUrl = "formTypeUrl",
                 sendData = emptyList(),
                 receiveData = emptyList(),
-                receiver = TaakReceiver.ZAAK_INITIATOR,
+                receiver = ZAAK_INITIATOR,
                 identificationKey = TaakIdentificatie.TYPE_BSN,
                 identificationValue = bsn,
                 verloopDurationInDays = 5L
@@ -132,6 +136,7 @@ internal class PortaaltaakPluginTest {
         val objecttypenApiPlugin = mock<ObjecttypenApiPlugin>()
         val objectManagement = getObjectManagement()
         val objectTypeUrl = URI("https://example.com/")
+        portaaltaakPlugin.taakVersion = TaakVersion.V1
 
         whenever(objectManagementService.getById(any())).thenReturn(objectManagement)
         whenever(pluginService.createInstance<ObjectenApiPlugin>(objectManagement.objectenApiPluginConfigurationId)).thenReturn(
@@ -157,7 +162,6 @@ internal class PortaaltaakPluginTest {
 
         portaaltaakPlugin.createPortaalTaak(
             delegateTask,
-            V1,
             config
         )
 
@@ -201,6 +205,7 @@ internal class PortaaltaakPluginTest {
         val objecttypenApiPlugin = mock<ObjecttypenApiPlugin>()
         val objectManagement = getObjectManagement()
         val objectTypeUrl = URI("https://example.com/")
+        portaaltaakPlugin.taakVersion = TaakVersion.V2
 
         whenever(objectManagementService.getById(any())).thenReturn(objectManagement)
         whenever(pluginService.createInstance<ObjectenApiPlugin>(objectManagement.objectenApiPluginConfigurationId)).thenReturn(
@@ -226,7 +231,6 @@ internal class PortaaltaakPluginTest {
 
         portaaltaakPlugin.createPortaalTaak(
             delegateTask,
-            V2,
             config
         )
 
@@ -259,7 +263,7 @@ internal class PortaaltaakPluginTest {
                 formTypeUrl = "formTypeUrl",
                 sendData = emptyList(),
                 receiveData = emptyList(),
-                receiver = TaakReceiver.ZAAK_INITIATOR,
+                receiver = ZAAK_INITIATOR,
                 identificationKey = TaakIdentificatie.TYPE_BSN,
                 identificationValue = bsn
             )
@@ -272,6 +276,7 @@ internal class PortaaltaakPluginTest {
         val objectTypeUrl = URI("https://example.com/")
 
         val objectMapper = MapperSingleton.get()
+        portaaltaakPlugin.taakVersion = TaakVersion.V1
 
         whenever(objectManagementService.getById(any())).thenReturn(objectManagement)
         whenever(pluginService.createInstance<ObjectenApiPlugin>(objectManagement.objectenApiPluginConfigurationId)).thenReturn(
@@ -298,7 +303,6 @@ internal class PortaaltaakPluginTest {
 
         portaaltaakPlugin.createPortaalTaak(
             delegateTask,
-            V1,
             config
         )
 
@@ -340,6 +344,7 @@ internal class PortaaltaakPluginTest {
         val objecttypenApiPlugin = mock<ObjecttypenApiPlugin>()
         val objectManagement = getObjectManagement()
         val objectTypeUrl = URI("https://example.com/")
+        portaaltaakPlugin.taakVersion = TaakVersion.V2
 
         whenever(objectManagementService.getById(any())).thenReturn(objectManagement)
         whenever(pluginService.createInstance<ObjectenApiPlugin>(objectManagement.objectenApiPluginConfigurationId)).thenReturn(
@@ -365,7 +370,6 @@ internal class PortaaltaakPluginTest {
 
         portaaltaakPlugin.createPortaalTaak(
             delegateTask,
-            V2,
             config
         )
 
@@ -413,6 +417,7 @@ internal class PortaaltaakPluginTest {
         val objectTypeUrl = URI("https://example.com/")
 
         val objectMapper = MapperSingleton.get()
+        portaaltaakPlugin.taakVersion = TaakVersion.V1
 
         whenever(objectManagementService.getById(any())).thenReturn(objectManagement)
         whenever(pluginService.createInstance<ObjectenApiPlugin>(objectManagement.objectenApiPluginConfigurationId)).thenReturn(
@@ -441,7 +446,6 @@ internal class PortaaltaakPluginTest {
 
         portaaltaakPlugin.createPortaalTaak(
             delegateTask,
-            V1,
             config
         )
 
@@ -470,7 +474,7 @@ internal class PortaaltaakPluginTest {
     @Test
     fun `should get the correct identification for case initiated by a citizen`() {
         val result =
-            portaaltaakPlugin.getTaakIdentification(delegateTask, TaakReceiver.OTHER, TaakIdentificatie.TYPE_BSN, bsn)
+            portaaltaakService.getTaakIdentification(delegateTask, TaakReceiver.OTHER, TaakIdentificatie.TYPE_BSN, bsn)
         assertEquals("bsn", result.type)
         assertEquals(bsn, result.value)
     }
@@ -478,7 +482,7 @@ internal class PortaaltaakPluginTest {
     @Test
     fun `should get the correct task identification for task initiated by other with a citizen service number`() {
         val result =
-            portaaltaakPlugin.getTaakIdentification(delegateTask, TaakReceiver.OTHER, TaakIdentificatie.TYPE_BSN, bsn)
+            portaaltaakService.getTaakIdentification(delegateTask, TaakReceiver.OTHER, TaakIdentificatie.TYPE_BSN, bsn)
         assertEquals("bsn", result.type)
         assertEquals(bsn, result.value)
     }
@@ -486,7 +490,7 @@ internal class PortaaltaakPluginTest {
     @Test
     fun `should get the correct task identification for task initiated by other with a kvk number`() {
         val result =
-            portaaltaakPlugin.getTaakIdentification(
+            portaaltaakService.getTaakIdentification(
                 delegateTask,
                 TaakReceiver.OTHER,
                 TaakIdentificatie.TYPE_KVK,
@@ -500,7 +504,7 @@ internal class PortaaltaakPluginTest {
     fun `should throw exception when no task sender is available`() {
         val result =
             assertThrows<IllegalStateException> {
-                portaaltaakPlugin.getTaakIdentification(delegateTask, TaakReceiver.OTHER, null, null)
+                portaaltaakService.getTaakIdentification(delegateTask, TaakReceiver.OTHER, null, null)
             }
         assertEquals(
             "Other was chosen as taak receiver, but no identification key was chosen.",
@@ -512,7 +516,7 @@ internal class PortaaltaakPluginTest {
     fun `should throw exception when no task sender value is available`() {
         val result =
             assertThrows<IllegalStateException> {
-                portaaltaakPlugin.getTaakIdentification(
+                portaaltaakService.getTaakIdentification(
                     delegateTask,
                     TaakReceiver.OTHER,
                     TaakIdentificatie.TYPE_KVK,
@@ -539,7 +543,7 @@ internal class PortaaltaakPluginTest {
 
 
         val result =
-            portaaltaakPlugin.getTaakIdentification(delegateTask, TaakReceiver.ZAAK_INITIATOR, null, null)
+            portaaltaakService.getTaakIdentification(delegateTask, ZAAK_INITIATOR, null, null)
 
         assertEquals("bsn", result.type)
         assertEquals(
@@ -558,7 +562,7 @@ internal class PortaaltaakPluginTest {
         whenever(pluginService.createInstance(any<Class<ZakenApiPlugin>>(), any())).thenReturn(null)
 
         val result = assertThrows<IllegalArgumentException> {
-            portaaltaakPlugin.getZaakinitiator(delegateTask)
+            portaaltaakService.getZaakinitiator(delegateTask)
         }
         assertEquals(
             "No plugin configuration was found for zaak with URL ${getZaakInstanceLink().zaakInstanceUrl}",
@@ -579,7 +583,7 @@ internal class PortaaltaakPluginTest {
         ).thenReturn(emptyList())
 
         val result = assertThrows<IllegalArgumentException> {
-            portaaltaakPlugin.getZaakinitiator(delegateTask)
+            portaaltaakService.getZaakinitiator(delegateTask)
         }
         assertEquals(
             "No initiator role found for zaak with URL ${getZaakInstanceLink().zaakInstanceUrl}",
@@ -600,7 +604,7 @@ internal class PortaaltaakPluginTest {
         ).thenReturn(getRol(BetrokkeneType.MEDEWERKER))
 
         val result = assertThrows<IllegalArgumentException> {
-            portaaltaakPlugin.getZaakinitiator(delegateTask)
+            portaaltaakService.getZaakinitiator(delegateTask)
         }
         assertEquals(
             "Could not map initiator identificatie (value=${

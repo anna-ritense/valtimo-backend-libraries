@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.ritense.document.service.DocumentService
 import com.ritense.objectmanagement.service.ObjectManagementService
 import com.ritense.plugin.service.PluginService
+import com.ritense.portaaltaak.service.PortaaltaakService
 import com.ritense.processdocument.service.ProcessDocumentService
 import com.ritense.valtimo.contract.config.LiquibaseMasterChangeLogLocation
 import com.ritense.valtimo.service.CamundaProcessService
@@ -37,22 +38,34 @@ import org.springframework.core.annotation.Order
 class PortaaltaakAutoConfiguration {
 
     @Bean
-    @ConditionalOnMissingBean(PortaaltaakPluginFactory::class)
-    fun portaaltaakPluginFactory(
+    @ConditionalOnMissingBean(PortaaltaakService::class)
+    fun portaaltaakService(
         pluginService: PluginService,
         objectManagementService: ObjectManagementService,
         valueResolverService: ValueResolverService,
         processDocumentService: ProcessDocumentService,
         zaakInstanceLinkService: ZaakInstanceLinkService,
         taskService: CamundaTaskService,
-    ): PortaaltaakPluginFactory {
-        return PortaaltaakPluginFactory(
-            pluginService,
+    ): PortaaltaakService {
+        return PortaaltaakService(
             objectManagementService,
+            pluginService,
             valueResolverService,
             processDocumentService,
             zaakInstanceLinkService,
             taskService,
+        )
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(PortaaltaakPluginFactory::class)
+    fun portaaltaakPluginFactory(
+        pluginService: PluginService,
+        portaaltaakService: PortaaltaakService
+    ): PortaaltaakPluginFactory {
+        return PortaaltaakPluginFactory(
+            pluginService,
+            portaaltaakService,
         )
     }
 

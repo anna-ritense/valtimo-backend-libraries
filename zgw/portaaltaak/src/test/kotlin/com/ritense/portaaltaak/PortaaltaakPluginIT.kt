@@ -32,6 +32,7 @@ import com.ritense.objectenapi.client.ObjectWrapper
 import com.ritense.objectmanagement.domain.ObjectManagement
 import com.ritense.objectmanagement.service.ObjectManagementService
 import com.ritense.objecttypenapi.ObjecttypenApiAuthentication
+import com.ritense.objecttypenapi.ObjecttypenApiPlugin
 import com.ritense.plugin.domain.PluginConfiguration
 import com.ritense.plugin.domain.PluginConfigurationId
 import com.ritense.plugin.domain.PluginProcessLink
@@ -39,7 +40,6 @@ import com.ritense.plugin.domain.PluginProcessLinkId
 import com.ritense.plugin.repository.PluginProcessLinkRepository
 import com.ritense.portaaltaak.domain.TaakForm
 import com.ritense.portaaltaak.domain.TaakFormType
-import com.ritense.portaaltaak.domain.TaakFormType.ID
 import com.ritense.portaaltaak.domain.TaakIdentificatie
 import com.ritense.portaaltaak.domain.TaakObject
 import com.ritense.portaaltaak.domain.TaakReceiver
@@ -47,6 +47,7 @@ import com.ritense.portaaltaak.domain.TaakStatus
 import com.ritense.portaaltaak.domain.TaakStatus.INGEDIEND
 import com.ritense.portaaltaak.domain.TaakVersion
 import com.ritense.portaaltaak.exception.CompleteTaakProcessVariableNotFoundException
+import com.ritense.portaaltaak.service.PortaaltaakService
 import com.ritense.processdocument.domain.impl.request.NewDocumentAndStartProcessRequest
 import com.ritense.processdocument.service.ProcessDocumentService
 import com.ritense.processlink.domain.ActivityTypeWithEventName
@@ -63,6 +64,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.camunda.bpm.engine.RepositoryService
 import org.camunda.community.mockito.delegate.DelegateExecutionFake
+import org.camunda.community.mockito.delegate.DelegateTaskFake
 import org.hamcrest.CoreMatchers.anyOf
 import org.hamcrest.CoreMatchers.endsWith
 import org.hamcrest.CoreMatchers.equalTo
@@ -78,10 +80,10 @@ import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.doCallRealMethod
 import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.mock
-import org.mockito.kotlin.spy
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.mock.mockito.SpyBean
 import org.springframework.http.HttpMethod
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestClient
@@ -120,6 +122,9 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
 
     @Autowired
     lateinit var objectMapper: ObjectMapper
+
+    @SpyBean
+    lateinit var portaaltaakService: PortaaltaakService
 
     lateinit var server: MockWebServer
 
@@ -506,24 +511,28 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
         )
         assertNotNull(runWithoutAuthorization { taskService.findTaskById(task.id) })
 
-        val portaaltaakPlugin =
-            spy(pluginService.createInstance(portaalTaakPluginV1Configuration.id) as PortaaltaakPlugin)
-        val delegateExecution = DelegateExecutionFake()
-        delegateExecution.setVariable("verwerkerTaakId", task.id)
-        delegateExecution.setVariable("objectenApiPluginConfigurationId", objectenPlugin.id.id.toString())
-        delegateExecution.setVariable("portaalTaakObjectUrl", "http://some.resource/url")
-        val objectenApiPlugin: ObjectenApiPlugin = mock()
+        val delegateTask = DelegateTaskFake().withExecution(DelegateExecutionFake().apply {
+            setVariable("verwerkerTaakId", task.id)
+            setVariable("objectenApiPluginConfigurationId", objectenPlugin.id.id.toString())
+            setVariable("portaalTaakObjectUrl", "http://some.resource/url")
+        })
+        val objectenApiPlugin = mock<ObjectenApiPlugin>()
+        val objecttypenApiPlugin = mock<ObjecttypenApiPlugin>()
         val objectWrapperCaptor = argumentCaptor<ObjectWrapper>()
         val jsonNodeCaptor = argumentCaptor<JsonNode>()
         val objectWrapper = getObjectWrapper()
 
-        doReturn(objectenApiPlugin).whenever(pluginService).createInstance(any<PluginConfigurationId>())
+        whenever(pluginService.createInstance<ObjectenApiPlugin>(objectenPlugin.id.id))
+            .thenReturn(objectenApiPlugin)
+        whenever(pluginService.createInstance<ObjecttypenApiPlugin>(objecttypenPlugin.id.id))
+            .thenReturn(objecttypenApiPlugin)
         whenever(objectenApiPlugin.getObject(any())).thenReturn(objectWrapper)
         whenever(objectenApiPlugin.objectPatch(any(), any())).thenReturn(null)
+        whenever(objecttypenApiPlugin.getObjectTypeUrlById(any())).thenReturn(server.url("/").toUri())
 
-        portaaltaakPlugin.completePortaalTaak(delegateExecution)
+        portaaltaakService.completePortaaltaak(TaakVersion.V1, objectManagement.id, delegateTask)
 
-        verify(portaaltaakPlugin).changeDataInPortalTaakObject(objectWrapperCaptor.capture(), jsonNodeCaptor.capture())
+        verify(portaaltaakService).changeDataInPortalTaakObject(objectWrapperCaptor.capture(), jsonNodeCaptor.capture())
 
         val sentTaakObject: TaakObject = objectMapper.treeToValue(jsonNodeCaptor.firstValue, TaakObject::class.java)
         assertEquals(TaakStatus.VERWERKT, sentTaakObject.status)
@@ -547,35 +556,14 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
     @Test
     fun `should throw exception due to missing verwerkerTaakId`() {
         val portaaltaakPlugin = pluginService.createInstance(portaalTaakPluginV1Configuration.id) as PortaaltaakPlugin
-        val delegateExecution = DelegateExecutionFake()
+        val delegateTask = DelegateTaskFake().withExecution(DelegateExecutionFake())
         val result =
             assertThrows<CompleteTaakProcessVariableNotFoundException> {
                 portaaltaakPlugin.completePortaalTaak(
-                    delegateExecution
+                    delegateTask
                 )
             }
         assertEquals("verwerkerTaakId is required but was not provided", result.message)
-    }
-
-    @Test
-    fun `should throw exception due to missing objectenApiPluginConfigurationId`() {
-        val task = startPortaalTaakProcess(
-            """
-            {
-                "lastname": "test"
-            }
-        """.trimIndent()
-        )
-        val portaaltaakPlugin = pluginService.createInstance(portaalTaakPluginV1Configuration.id) as PortaaltaakPlugin
-        val delegateExecution = DelegateExecutionFake()
-        delegateExecution.setVariable("verwerkerTaakId", task.id)
-        val result =
-            assertThrows<CompleteTaakProcessVariableNotFoundException> {
-                portaaltaakPlugin.completePortaalTaak(
-                    delegateExecution
-                )
-            }
-        assertEquals("objectenApiPluginConfigurationId is required but was not provided", result.message)
     }
 
     @Test
@@ -588,14 +576,14 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
         """.trimIndent()
         )
         val portaaltaakPlugin = pluginService.createInstance(portaalTaakPluginV1Configuration.id) as PortaaltaakPlugin
-        val delegateExecution = DelegateExecutionFake()
-        delegateExecution.setVariable("verwerkerTaakId", task.id)
-        delegateExecution.setVariable("objectenApiPluginConfigurationId", objectenPlugin.id.id.toString())
-
+        val delegateTask = DelegateTaskFake().withExecution(DelegateExecutionFake().apply {
+            setVariable("verwerkerTaakId", task.id)
+            setVariable("objectenApiPluginConfigurationId", objectenPlugin.id.id.toString())
+        })
         val result =
             assertThrows<CompleteTaakProcessVariableNotFoundException> {
                 portaaltaakPlugin.completePortaalTaak(
-                    delegateExecution
+                    delegateTask
                 )
             }
         assertEquals("portaalTaakObjectUrl is required but was not provided", result.message)
@@ -843,7 +831,7 @@ class PortaaltaakPluginIT : BaseIntegrationTest() {
             data = emptyMap(),
             title = "aTitle",
             status = INGEDIEND,
-            formulier = TaakForm(ID, "anId"),
+            formulier = TaakForm(TaakFormType.ID, "anId"),
             verwerkerTaakId = UUID.randomUUID().toString(),
             URI.create("aZaakInstanceUrl"),
             LocalDateTime.now(),
