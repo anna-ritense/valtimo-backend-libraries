@@ -88,7 +88,7 @@ data class TaakObjectV2(
     )
 
     data class PortaalFormulier(
-        val type: TaakFormulier,
+        val formulier: TaakFormulier,
         val data: Map<String, Any>? = emptyMap(),
         @JsonProperty("verzonden_data")
         var verzondenData: Map<String, Any> = emptyMap(),

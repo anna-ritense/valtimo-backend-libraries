@@ -26,6 +26,7 @@ import com.ritense.plugin.annotation.PluginProperty
 import com.ritense.portaaltaak.domain.TaakVersion
 import com.ritense.portaaltaak.service.PortaaltaakService
 import com.ritense.processlink.domain.ActivityTypeWithEventName
+import org.camunda.bpm.engine.delegate.DelegateExecution
 import org.camunda.bpm.engine.delegate.DelegateTask
 import java.util.UUID
 
@@ -44,7 +45,7 @@ class PortaaltaakPlugin(
     lateinit var objectManagementConfigurationId: UUID
 
     @PluginProperty(key = "taakVersion", secret = false)
-    lateinit var taakVersion: TaakVersion
+    var taakVersion: TaakVersion = TaakVersion.V1
 
     @PluginProperty(key = "completeTaakProcess", secret = false)
     lateinit var completeTaakProcess: String
@@ -75,12 +76,12 @@ class PortaaltaakPlugin(
         description = "Complete portal task and update status on Objects Api",
         activityTypes = [ActivityTypeWithEventName.SERVICE_TASK_START]
     )
-    fun completePortaalTaak(delegateTask: DelegateTask) {
-        withLoggingContext(DelegateTask::class.java.canonicalName to delegateTask.id) {
+    fun completePortaalTaak(execution: DelegateExecution) {
+        withLoggingContext(DelegateExecution::class.java.canonicalName to execution.id) {
             portaaltaakService.completePortaaltaak(
                 objectManagementId = objectManagementConfigurationId,
                 version = taakVersion,
-                delegateTask = delegateTask
+                execution = execution,
             )
         }
     }

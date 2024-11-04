@@ -609,7 +609,7 @@ internal class PortaalTaakEventListenerIntTest : BaseIntegrationTest() {
             identificatie = TaakObjectV2.TaakIdentificatie("aType", "aValue"),
             soort = PORTAALFORMULIER,
             portaalformulier = PortaalFormulier(
-                type = TaakFormulier(
+                formulier = TaakFormulier(
                     soort = URL,
                     value = "${server.url("/")}objects/form/my-form"
                 ),

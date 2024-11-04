@@ -73,6 +73,7 @@ import mu.KotlinLogging
 import org.camunda.bpm.engine.delegate.DelegateExecution
 import org.camunda.bpm.engine.delegate.DelegateTask
 import java.net.URI
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -115,10 +116,9 @@ class PortaaltaakService(
     internal fun completePortaaltaak(
         version: TaakVersion,
         objectManagementId: UUID,
-        delegateTask: DelegateTask
+        execution: DelegateExecution
     ) {
         logger.debug { "Completing portaaltaak" }
-        val execution = delegateTask.execution
         val objectManagement = objectManagementService.getById(objectManagementId)
             ?: throw IllegalStateException("Could not find Object Management Configuration by ID $objectManagementId")
 
@@ -229,7 +229,7 @@ class PortaaltaakService(
                 .verloopdatum
                 ?.let {
                     try {
-                        LocalDate.parse(it)
+                        LocalDate.ofInstant(Instant.parse(it), ZoneId.systemDefault())
                     } catch (ex: DateTimeParseException) {
                         logger.debug {
                             "Failed to parse $it as LocalDate. Check your plugin action configuration."
@@ -282,7 +282,7 @@ class PortaaltaakService(
             url = config.taakUrl?.let { TaakUrl(it) },
             portaalformulier = if (config.taakSoort == TaakSoort.PORTAALFORMULIER) {
                 PortaalFormulier(
-                    type = TaakFormulier(
+                    formulier = TaakFormulier(
                         soort = config.portaalformulierSoort!!,
                         value = config.portaalformulierValue!!
                     ),
@@ -403,18 +403,18 @@ class PortaaltaakService(
         sendData: List<DataBindingConfig>,
         documentId: String
     ): Map<String, Any> {
-        val sendDataValuesResolvedMap = valueResolverService.resolveValues(documentId, sendData.map { it.value })
+        val sendDataValuesResolvedMap = valueResolverService.resolveValues(documentId, sendData.map { it.key })
 
         if (sendData.size != sendDataValuesResolvedMap.size) {
             val failedValues = sendData
-                .filter { !sendDataValuesResolvedMap.containsKey(it.value) }
+                .filter { !sendDataValuesResolvedMap.containsKey(it.key) }
                 .joinToString(", ") { "'${it.key}' = '${it.value}'" }
             throw IllegalArgumentException(
                 "Error in sendData for task: '${delegateTask.taskDefinitionKey}' and documentId: '${documentId}'. Failed to resolve values: $failedValues".trimMargin()
             )
         }
 
-        val sendDataResolvedMap = sendData.associate { it.key to sendDataValuesResolvedMap[it.value] }
+        val sendDataResolvedMap = sendData.associate { it.value to sendDataValuesResolvedMap[it.key] }
         val jsonPatchBuilder = JsonPatchBuilder()
         val taakData = objectMapper.createObjectNode()
 
